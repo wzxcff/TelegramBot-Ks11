@@ -8,7 +8,9 @@ import datetime
 # Initialize token from .env file
 load_dotenv()
 bot = telebot.TeleBot(os.getenv("TOKEN"))
+admins = os.getenv("ADMINS")
 
+awaitForAlertMessage = False
 
 # Create reply markup for user
 userMarkup = types.ReplyKeyboardMarkup(row_width=3)
@@ -23,6 +25,11 @@ adminMainBtn_2 = types.KeyboardButton("Зробити оповістку")
 adminMainBtn_3 = types.KeyboardButton("Список відміченних")
 adminMainBtn_4 = types.KeyboardButton("Вийти")
 adminMarkupMain.add(adminMainBtn_1, adminMainBtn_2, adminMainBtn_3, adminMainBtn_4)
+
+adminAlert = types.ReplyKeyboardMarkup()
+adminAlertBtn_1 = types.KeyboardButton("Скасувати оповістку")
+adminAlertBtn_2 = types.KeyboardButton("Повернутись")
+adminAlert.add(adminAlertBtn_1, adminAlertBtn_2)
 
 
 class ScheduleDay:
@@ -106,8 +113,8 @@ def commands_handler(message):
     log("info", f"{message.text}", user_id=message.from_user.id, user_name=message.from_user.first_name)
     if message.text == "/start":
         with open("subscribed.txt", "r+", encoding="utf-8") as file:
-            read_file = file.readlines()
-            if str(f"{message.from_user.id}, ") not in read_file:
+            read_file = file.readline()
+            if str(f"{message.from_user.id}") not in read_file:
                 file.write(f"{str(message.from_user.id)}, ")
         bot.send_message(message.chat.id, f"Привіт, {message.from_user.first_name}!\nМене було створено спеціально для групи *КС-11*.\nАдміністраторам - /login", parse_mode="Markdown", reply_markup=userMarkup)
     elif message.text == "/help":
@@ -122,21 +129,42 @@ def commands_handler(message):
 
 @bot.message_handler(content_types=["text"])
 def message_handler(message):
+    global awaitForAlertMessage
     log("info", message.text, user_id=message.from_user.id, user_name=message.from_user.first_name)
-    if message.text == "Розклад на сьогодні":
+    if message.text == "Скасувати оповістку" and awaitForAlertMessage and str(message.from_user.id) in admins:
+        awaitForAlertMessage = False
+        bot.send_message(message.chat.id, "Оповістку скасовано")
+    elif awaitForAlertMessage and str(message.from_user.id) in admins:
+        with open("subscribed.txt", "r", encoding="utf-8") as file:
+            readed = file.readline().replace(" ", "").split(",")
+            for el in readed:
+                if el.isdigit():
+                    bot.send_message(int(el), f"*Оповістка:* {str(message.text)}", parse_mode="Markdown")
+                    log("alert", f"Alert to {int(el)} sent successfully!")
+        bot.send_message(message.chat.id, "Оповістку успішно надіслано", reply_markup=userMarkup)
+        awaitForAlertMessage = False
+    elif message.text == "Розклад на сьогодні":
         send_schedule_today(message)
     elif message.text == "Розклад на тиждень":
         send_schedule_weekly(message)
-    elif message.text == "Адмін":
+    elif message.text == "Адмін" and str(message.from_user.id) in admins:
         bot.send_message(message.chat.id, f"Вітаю в адмін панелі, *{message.from_user.first_name}*!", reply_markup=adminMarkupMain, parse_mode="Markdown")
+    elif message.text == "Адмін" and str(message.from_user.id) not in admins:
+        bot.send_message(message.chat.id, "Нажаль, Ви не маєте доступу до адмін панелі.")
+        log("access denied", message.text, user_id=message.from_user.id, user_name=message.from_user.first_name)
     elif message.text == "Редагувати розклад":
         pass
-    elif message.text == "Зробити оповістку":
-        pass
+    elif message.text == "Зробити оповістку" and str(message.from_user.id) in admins:
+        bot.send_message(message.chat.id, "Введіть текст повідомлення", reply_markup=adminAlert)
+        awaitForAlertMessage = True
+    elif message.text == "Зробити оповістку" and str(message.from_user.id) not in admins:
+        bot.send_message(message.chat.id, "Нажаль, Ви не маєте доступу до адмін панелі.")
+        log("access denied", message.text, user_id=message.from_user.id, user_name=message.from_user.first_name)
     elif message.text == "Список відміченних":
         pass
-    elif message.text == "Вийти":
+    elif message.text == "Повернутись":
         bot.send_message(message.chat.id, "Дякую :)", reply_markup=userMarkup)
+        awaitForAlertMessage = False
 
 
 
