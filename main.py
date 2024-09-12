@@ -5,7 +5,6 @@ from telebot import types
 from dotenv import load_dotenv
 import os
 import datetime
-from random import randint as rnd
 
 def build_buttons(admin_markup, labels):
     buttons = []
@@ -326,7 +325,7 @@ def message_handler(message):
         bot.send_message(message.chat.id, "Нажаль, Ви не маєте доступу до адмін панелі.")
         log("access denied", message.text, user_id=message.from_user.id, user_name=message.from_user.first_name)
     elif message.text == "Редагувати розклад" and str(message.from_user.id) in admins:
-        bot.send_message(message.chat.id, "Ви в режимі редагування розкладу!\n\n*Важливо!* не обов'язково користуватись готовими кнопками, Ви також можете відправити мені текст. Це стосується: часу, дисципліни, типу, викладача, *посилання*.", reply_markup=adminEditSchedule, parse_mode="Markdown")
+        bot.send_message(message.chat.id, "Ви в режимі редагування розкладу!\n\n*Важливо!* не обов'язково користуватись готовими кнопками, Ви також можете відправити мені текст. Це стосується: часу, дисципліни, типу, викладача, *посилання*.\nТакож, важливий порядок пар, додавайте в порядку зранку до вечора.", reply_markup=adminEditSchedule, parse_mode="Markdown")
     elif message.text == "Зробити оповістку" and str(message.from_user.id) in admins:
         bot.send_message(message.chat.id, "Введіть текст повідомлення.", reply_markup=adminAlert)
         bot.register_next_step_handler(message, send_alert)
