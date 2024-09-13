@@ -1,10 +1,14 @@
-import csv
+from pathlib import Path
 
-import telebot
+import telebot, os, datetime, csv
 from telebot import types
 from dotenv import load_dotenv
-import os
-import datetime
+from borb.io.read.types import Decimal
+from borb.pdf import Document, FlexibleColumnWidthTable, PDF, Page, PageLayout, Paragraph, SingleColumnLayout, \
+    TableCell, TrueTypeFont, FixedColumnWidthTable
+from borb.pdf.canvas.font.simple_font.true_type_font import TrueTypeFont
+from borb.pdf.canvas.font.font import Font
+
 
 def build_buttons(admin_markup, labels):
     buttons = []
@@ -23,13 +27,14 @@ today = datetime.datetime.now().strftime('%A')
 
 pingedUsers = {}
 links = {
-    "Алгоритмізація та структури данних": "https://meet.google.com/dbf-jyxe-wco",
+    "Алгоритмізація та програмування": "https://meet.google.com/dbf-jyxe-wco",
     "Вища математика": "https://us02web.zoom.us/j/85968110027\nКод: Nikolenko1",
     "Дискретна математика": "https://us02web.zoom.us/j/87437049146?",
     "Університетські студії та вступ до комп'ютерних наук": "https://meet.google.com/jnn-nrgu-xpt",
     "Іноземна мова": "https://us05web.zoom.us/j/3749499044?pwd=DAta1gOcsU3yUStFEn7gbSuTJVxcbR.1",
     "Історія України: Цивілізаційний вимір": "https://us05web.zoom.us/j/4833912715?pwd=aD1SU2RTMVpKaUJ4Q3Z6Ry80ak5IZz09",
-    "Кураторська година": "https://us02web.zoom.us/j/82682991107\nКод: Nikolenko1"
+    "Кураторська година": "https://us02web.zoom.us/j/82682991107\nКод: Nikolenko1",
+    "-": "-"
 }
 
 # Create reply markup for user
@@ -68,11 +73,11 @@ timeSchedule = ["10:10 - 11:30", "12:00 - 13:20", "13:40 - 15:00", "15:20 - 16:4
 build_buttons(adminTimeSchedule, timeSchedule)
 
 adminLesson = types.ReplyKeyboardMarkup(row_width=3)
-lessons = ["Алгоритмізація та структури данних", "Вища математика", "Дискретна математика", "Університетські студії та вступ до комп'ютерних наук", "Іноземна мова", "Історія України: Цивілізаційний вимір", "Кураторська година", "Скасувати", " "]
+lessons = ["Алгоритмізація та програмування", "Вища математика", "Дискретна математика", "Університетські студії та вступ до комп'ютерних наук", "Іноземна мова", "Історія України: Цивілізаційний вимір", "Кураторська година", "Скасувати", " "]
 build_buttons(adminLesson, lessons)
 
 adminInstructors = types.ReplyKeyboardMarkup(row_width=3)
-instructors = ["Струков Михайло Володимирович", "Ніколенко Ірина Генадіївна", "Аршава Олена Олександрівна", "Шкабура Ярослав Іванович", "Нестеренко Вікторія Олександрівна", "Єршова Ілона Шонівна", "Зінов'єв Дмитро Васильович та Ткачук Микола Вячеславович", "Зінов'єв Дмитро Васильович", "Ткачук Микола Вячеславович", "Скасувати"]
+instructors = ["Струков Володимир Михайлович", "Ніколенко Ірина Генадіївна", "Аршава Олена Олександрівна", "Шкабура Ярослав Іванович", "Нестеренко Вікторія Олександрівна", "Єршова Ілона Шонівна", "Зінов'єв Дмитро Васильович та Ткачук Микола Вячеславович", "Зінов'єв Дмитро Васильович", "Ткачук Микола Вячеславович", "Скасувати"]
 build_buttons(adminInstructors, instructors)
 
 adminLinks = types.ReplyKeyboardMarkup(row_width=3)
@@ -84,7 +89,7 @@ adminIsItCorrectBtn_2 = types.KeyboardButton("Ні, скинути")
 adminIsItCorrect.add(adminIsItCorrectBtn_1, adminIsItCorrectBtn_2)
 
 adminPingedUsers = types.ReplyKeyboardMarkup(row_width=1)
-adminPingedUsers_labels = ["Подивитись", "Очистити", "Повернутись"]
+adminPingedUsers_labels = ["Подивитись", "Очистити", "Сгенерувати PDF", "Повернутись"]
 build_buttons(adminPingedUsers, adminPingedUsers_labels)
 
 
@@ -161,6 +166,7 @@ def read_csv_all(message):
                     formatted_to_send += formatted_message
                 else:
                     formatted_to_send += formatted_message
+        formatted_to_send += "——————————————————\n"
         bot.send_message(message.chat.id, formatted_to_send, parse_mode="Markdown", disable_web_page_preview=True)
     except FileNotFoundError:
         log("error - read_csv_all", f"Cannot read schedule.csv! File exists?")
@@ -209,7 +215,7 @@ def handle_admin_action(message, day):
 def handle_time_selection(message, day):
     if message.text == "Скасувати":
         bot.send_message(message.chat.id, "Дякую за вашу працю :)", reply_markup=adminMarkupMain)
-    elif message.text in timeSchedule and str(message.from_user.id) in admins:
+    elif str(message.from_user.id) in admins:
         time = message.text
         bot.send_message(message.chat.id, "Оберіть дисципліну.", reply_markup=adminLesson)
         bot.register_next_step_handler(message, handle_lesson_selection, day, time)
@@ -217,7 +223,7 @@ def handle_time_selection(message, day):
 def handle_lesson_selection(message, day, time):
     if message.text == "Скасувати":
         bot.send_message(message.chat.id, "Дякую за вашу працю :)", reply_markup=adminMarkupMain)
-    elif message.text in lessons and str(message.from_user.id) in admins:
+    elif str(message.from_user.id) in admins:
         lesson = message.text
         bot.send_message(message.chat.id, "Оберіть тип.", reply_markup=adminTypeLesson)
         bot.register_next_step_handler(message, handle_lesson_type_selection, day, time, lesson)
@@ -225,7 +231,7 @@ def handle_lesson_selection(message, day, time):
 def handle_lesson_type_selection(message, day, time, lesson):
     if message.text == "Скасувати":
         bot.send_message(message.chat.id, "Дякую за вашу працю :)", reply_markup=adminMarkupMain)
-    elif message.text in lesson_types:
+    elif str(message.from_user.id) in admins:
         lessonType = message.text
         bot.send_message(message.chat.id, "Оберіть викладача.", reply_markup=adminInstructors)
         bot.register_next_step_handler(message, handle_instructor_selection, day, time, lesson, lessonType)
@@ -233,7 +239,7 @@ def handle_lesson_type_selection(message, day, time, lesson):
 def handle_instructor_selection(message, day, time, lesson, lessonType):
     if message.text == "Скасувати":
         bot.send_message(message.chat.id, "Дякую за вашу працю :)", reply_markup=adminMarkupMain)
-    elif message.text in instructors and str(message.from_user.id) in admins:
+    elif str(message.from_user.id) in admins:
         instructor = message.text
         bot.send_message(message.chat.id, "Оберіть посилання із збережених постійних посилань.", reply_markup=adminLinks)
         bot.register_next_step_handler(message, handle_link_selection, day, time, lesson, lessonType, instructor)
@@ -252,6 +258,57 @@ def handle_confirm_selection(message, day, time, lesson, lessonType, instructor,
         write_csv(day, "додати пару", [day, lesson, lessonType, instructor, time, link])
     elif message.text == "Ні, скинути" and str(message.from_user.id) in admins:
         bot.send_message(message.chat.id, "Розклад скинено.", reply_markup=adminMarkupMain)
+
+
+def sort_based_on_reference(test_array, reference_array):
+    index_mapping = {value: idx for idx, value in enumerate(reference_array)}
+
+    def sorting_key(element):
+        return index_mapping.get(element, float('inf'))
+
+    sorted_array = sorted(test_array, key=sorting_key)
+    return sorted_array
+
+
+def generate_pdf(message):
+    para = []
+    username = message.from_user.username
+    firstname = message.from_user.first_name
+    lastname = message.from_user.last_name
+    doc: Document = Document()
+    page: Page = Page()
+    doc.add_page(page)
+    layout: PageLayout = SingleColumnLayout(page)
+    font: Font = TrueTypeFont.true_type_font_from_file(Path("Montserrat-Light.ttf"))
+    bold: Font = TrueTypeFont.true_type_font_from_file(Path("Montserrat-Bold.ttf"))
+    todayDayMonth = datetime.datetime.now().strftime("%d.%m")
+    layout.add(Paragraph(f"{todayDayMonth}", font=bold, font_size=Decimal(12)))
+    with open(f"{today}.csv", "r", encoding="utf-8", newline="") as csv_file:
+        reader = csv.reader(csv_file)
+        next(reader)
+
+        for el in reader:
+            para.append(f"{el[1]} - {el[2]}")
+        print(f"number of columns: {len(para) + 1}, number of rows: {len(pingedUsers.keys())}")
+        if not len(pingedUsers.keys()):
+            to_add = FixedColumnWidthTable(number_of_columns=len(para) + 1, number_of_rows=1)
+        else:
+            to_add = FixedColumnWidthTable(number_of_columns=len(para) + 1, number_of_rows=len(pingedUsers.keys()))
+        to_add.add(Paragraph("Ім'я та прізвище студента", font=bold, font_size=Decimal(8)))
+        if not para:
+            bot.send_message(message.chat.id, "Сьогодні пар немає.")
+        else:
+            for el in para:
+                to_add.add(Paragraph(el, font=bold, font_size=Decimal(8)))
+            layout.add(to_add.set_padding_on_all_cells(Decimal(5), Decimal(5), Decimal(0.5), Decimal(10)))
+
+            read_dict = pingedUsers.get(f"{username} ({firstname} {lastname})", "")
+            pingedKeys = pingedUsers.keys()
+
+            with open(f"{str(datetime.datetime.now().strftime("%d.%m")).replace(".", "")}.pdf", "wb") as out_file_handle:
+                PDF.dumps(out_file_handle, doc)
+                print("Generated document!")
+
 
 
 @bot.message_handler(commands=['start', 'help', 'admin_help'])
@@ -313,6 +370,11 @@ def message_handler(message):
     log("info", message.text, user_id=message.from_user.id, user_name=message.from_user.first_name)
     if message.text == "Скасувати":
         bot.send_message(message.chat.id, "Дякую за вашу працю :)", reply_markup=adminMarkupMain)
+    elif message.text == "Сгенерувати PDF" and str(message.from_user.id) in admins:
+        bot.send_message(message.chat.id, "На цьому моменті розробник втомився, тому, нажаль, функція в розробці.")
+        # generate_pdf(message)
+        # bot.send_document(message.chat.id, open(f"{datetime.datetime.now().strftime("%d.%m").replace(".", "")}.pdf", "rb"))
+        # os.remove(f"{datetime.datetime.now().strftime("%d.%m").replace(".", "")}.pdf")
     elif message.text in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] and str(message.from_user.id) in admins:
         handle_day_selection(message)
     elif message.text == "Розклад на сьогодні":
@@ -384,7 +446,8 @@ def message_handler(message):
     elif message.text == "Конфідеційність":
         bot.send_message(message.chat.id, "*Щодо використання ваших даних*\n\nРозробник ніяк не може отримати доступ до вашого акаунту, паролів або особистих повідомлень. Бот зберігає лише ваш *ID, юзернейм, ім’я та прізвище* для забезпечення коректної роботи сервісу в межах університетської групи.\n\nВаші дані залишаються конфіденційними та використовуються виключно для покращення взаємодії з ботом. Жодна інформація не передається третім сторонам або використовується для інших цілей.\n\nЯкщо у вас є питання стосовно збереження даних або ви хочете видалити вашу інформацію, будь ласка, звертайтеся до мене напряму — *@wzxcff*. Я завжди на зв'язку і готовий допомогти.", parse_mode="Markdown")
     else:
-        bot.send_sticker(message.chat.id, "CAACAgIAAxkBAAEtpzhm4tpt122kZPVMthLwqisN4yYkQwACfRUAAkS00UsbeN9xiHDUUTYE", message.id)
+        bot.send_sticker(message.chat.id, "CAACAgIAAxkBAAEtq1Vm5B2UODG5XpeAZ8nCmzMtVRZjKAAC3z0AAgveiUtlDmDxoTKLODYE", message.id)
+
 load_csv()
 log("boot", "bot live")
 bot.polling(non_stop=True)
