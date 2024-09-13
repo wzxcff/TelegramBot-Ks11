@@ -9,6 +9,27 @@ from borb.pdf import Document, FlexibleColumnWidthTable, PDF, Page, PageLayout, 
 from borb.pdf.canvas.font.simple_font.true_type_font import TrueTypeFont
 from borb.pdf.canvas.font.font import Font
 
+def log(tag, message, user_id=None, user_name=None):
+    if os.path.exists("log.txt"):
+        with open("log.txt", "a", encoding="utf-8") as file:
+            if user_id and user_name:
+                file.write(f"[{datetime.datetime.now().strftime("%H:%M:%S")}] - [{str(tag).upper()}] - [USER_ID: {user_id}] - [USER_NAME: {user_name}]: {message}\n")
+            elif user_id:
+                file.write(f"[{datetime.datetime.now().strftime("%H:%M:%S")}] - [{str(tag).upper()}] - [USER_ID: {user_id}]: {message}\n")
+            else:
+                file.write(f"[{datetime.datetime.now().strftime("%H:%M:%S")}] - [{str(tag).upper()}]: {message}\n")
+    else:
+        with open("log.txt", "w", encoding="utf-8") as file:
+            if user_id and user_name:
+                file.write(f"[{datetime.datetime.now().strftime("%H:%M:%S")}] - [{str(tag).upper()}] - [USER_ID: {user_id}] - [USER_NAME: {user_name}]: {message}\n")
+            elif user_id:
+                file.write(f"[{datetime.datetime.now().strftime("%H:%M:%S")}] - [{str(tag).upper()}] - [USER_ID: {user_id}]: {message}\n")
+            else:
+                file.write(f"[{datetime.datetime.now().strftime("%H:%M:%S")}] - [{str(tag).upper()}]: {message}\n")
+
+
+
+log("boot", "initializing bot")
 
 def build_buttons(admin_markup, labels):
     buttons = []
@@ -184,16 +205,6 @@ def write_csv(day, mode, info=None):
         log("error - write_csv", f"Cannot write to '{day}'.csv! File exists?")
 
 
-def log(tag, message, user_id=None, user_name=None):
-    if user_id and user_name:
-        print(f"[{datetime.datetime.now().strftime("%H:%M:%S")}] - [{str(tag).upper()}] - [USER_ID: {user_id}] - [USER_NAME: {user_name}]: {message}")
-    elif user_id:
-        print(f"[{datetime.datetime.now().strftime("%H:%M:%S")}] - [{str(tag).upper()}] - [USER_ID: {user_id}]: {message}")
-    else:
-        print(f"[{datetime.datetime.now().strftime("%H:%M:%S")}] - [{str(tag).upper()}]: {message}")
-
-
-
 def handle_day_selection(message):
     if message.text == "Скасувати":
         bot.send_message(message.chat.id, "Дякую за вашу працю :)", reply_markup=adminMarkupMain)
@@ -201,6 +212,7 @@ def handle_day_selection(message):
         day = message.text
         bot.send_message(message.chat.id, "Що Ви хочете зробити?", reply_markup=adminModeSchedule)
         bot.register_next_step_handler(message, handle_admin_action, day)
+
 
 def handle_admin_action(message, day):
     if message.text == "Скасувати":
@@ -212,6 +224,7 @@ def handle_admin_action(message, day):
         write_csv(day, "очистити розклад на день")
         bot.send_message(message.chat.id, "Розклад на день видалено.", reply_markup=adminMarkupMain)
 
+
 def handle_time_selection(message, day):
     if message.text == "Скасувати":
         bot.send_message(message.chat.id, "Дякую за вашу працю :)", reply_markup=adminMarkupMain)
@@ -219,6 +232,7 @@ def handle_time_selection(message, day):
         time = message.text
         bot.send_message(message.chat.id, "Оберіть дисципліну.", reply_markup=adminLesson)
         bot.register_next_step_handler(message, handle_lesson_selection, day, time)
+
 
 def handle_lesson_selection(message, day, time):
     if message.text == "Скасувати":
@@ -228,6 +242,7 @@ def handle_lesson_selection(message, day, time):
         bot.send_message(message.chat.id, "Оберіть тип.", reply_markup=adminTypeLesson)
         bot.register_next_step_handler(message, handle_lesson_type_selection, day, time, lesson)
 
+
 def handle_lesson_type_selection(message, day, time, lesson):
     if message.text == "Скасувати":
         bot.send_message(message.chat.id, "Дякую за вашу працю :)", reply_markup=adminMarkupMain)
@@ -235,6 +250,7 @@ def handle_lesson_type_selection(message, day, time, lesson):
         lessonType = message.text
         bot.send_message(message.chat.id, "Оберіть викладача.", reply_markup=adminInstructors)
         bot.register_next_step_handler(message, handle_instructor_selection, day, time, lesson, lessonType)
+
 
 def handle_instructor_selection(message, day, time, lesson, lessonType):
     if message.text == "Скасувати":
@@ -244,6 +260,7 @@ def handle_instructor_selection(message, day, time, lesson, lessonType):
         bot.send_message(message.chat.id, "Оберіть посилання із збережених постійних посилань.", reply_markup=adminLinks)
         bot.register_next_step_handler(message, handle_link_selection, day, time, lesson, lessonType, instructor)
 
+
 def handle_link_selection(message, day, time, lesson, lessonType, instructor):
     if message.text == "Скасувати":
         bot.send_message(message.chat.id, "Дякую за вашу працю :)", reply_markup=adminMarkupMain)
@@ -251,6 +268,7 @@ def handle_link_selection(message, day, time, lesson, lessonType, instructor):
         link = links[message.text]
         bot.send_message(message.chat.id, f"*Перевірте інформацію*\n\n*День тижня:* {day}\n*Дисципліна:* {lesson}\n*Тип:* {lessonType}\n*Викладач:* {instructor}\n*Час:* {time}\n*Посилання:* {link}\n\n*Це вірно?*", parse_mode="Markdown", reply_markup=adminIsItCorrect, disable_web_page_preview=True)
         bot.register_next_step_handler(message, handle_confirm_selection, day, time, lesson, lessonType, instructor, link)
+
 
 def handle_confirm_selection(message, day, time, lesson, lessonType, instructor, link):
     if message.text == "Так, вірно" and str(message.from_user.id) in admins:
@@ -445,6 +463,10 @@ def message_handler(message):
         bot.send_message(message.chat.id, "Привіт!\n\nДякую за вашу фінансову підтримку цього бота! Ваша допомога надзвичайно важлива для мене і дозволяє продовжувати покращувати сервіс.\n\nЯкщо є питання або пропозиції, не вагайтеся звертатися — *@wzxcff*.\n\nhttps://send.monobank.ua/jar/7yZdwvmNRf", disable_web_page_preview=True, parse_mode="Markdown")
     elif message.text == "Конфідеційність":
         bot.send_message(message.chat.id, "*Щодо використання ваших даних*\n\nРозробник ніяк не може отримати доступ до вашого акаунту, паролів або особистих повідомлень. Бот зберігає лише ваш *ID, юзернейм, ім’я та прізвище* для забезпечення коректної роботи сервісу в межах університетської групи.\n\nВаші дані залишаються конфіденційними та використовуються виключно для покращення взаємодії з ботом. Жодна інформація не передається третім сторонам або використовується для інших цілей.\n\nЯкщо у вас є питання стосовно збереження даних або ви хочете видалити вашу інформацію, будь ласка, звертайтеся до мене напряму — *@wzxcff*. Я завжди на зв'язку і готовий допомогти.", parse_mode="Markdown")
+    elif message.text == "/clear_log" and str(message.from_user.id) in admins:
+        with open("log.txt", "w", encoding="utf-8") as file:
+            file.write("Logs cleared")
+        bot.send_message(message.chat.id, "Логування очищено!")
     else:
         bot.send_sticker(message.chat.id, "CAACAgIAAxkBAAEtq1Vm5B2UODG5XpeAZ8nCmzMtVRZjKAAC3z0AAgveiUtlDmDxoTKLODYE", message.id)
 
