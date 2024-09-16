@@ -1,4 +1,7 @@
+from inspect import Traceback
 from pathlib import Path
+from trace import Trace
+from traceback import TracebackException
 
 import telebot, os, datetime, csv
 from telebot import types
@@ -46,6 +49,7 @@ admins = os.getenv("ADMINS")
 scheduleFiles = ["Monday.csv", "Tuesday.csv", "Wednesday.csv", "Thursday.csv", "Friday.csv", "Saturday.csv"]
 today = datetime.datetime.now().strftime('%A')
 
+acceptedUsers = []
 pingedUsers = {}
 links = {
     "Алгоритмізація та програмування": "https://meet.google.com/dbf-jyxe-wco",
@@ -68,12 +72,16 @@ userPingBtn_labels = ["Першій парі", "Другій парі", "Тре�
 build_buttons(userPingMarkup, userPingBtn_labels)
 
 adminMarkupMain = types.ReplyKeyboardMarkup(row_width=3)
-adminMarkupMain_labels = ["Редагувати розклад", "Зробити оповістку", "Список відміченних", "Повернутись"]
+adminMarkupMain_labels = ["Редагувати розклад", "Оповістки", "Список відміченних", "Повернутись"]
 build_buttons(adminMarkupMain, adminMarkupMain_labels)
 
 adminAlert = types.ReplyKeyboardMarkup()
 adminAlertBtn_1 = types.KeyboardButton("Скасувати оповістку")
 adminAlert.add(adminAlertBtn_1)
+
+adminAlertMainMenu = types.ReplyKeyboardMarkup()
+adminAlertMain_labels = ["Зробити оповістку", "Подивитись хто ознайомився", "Очистити список ознайомлених"]
+build_buttons(adminAlertMainMenu, adminAlertMain_labels)
 
 adminEditSchedule = types.ReplyKeyboardMarkup(row_width=3)
 adminEditSchedule_labels = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Скасувати"]
@@ -112,6 +120,10 @@ adminIsItCorrect.add(adminIsItCorrectBtn_1, adminIsItCorrectBtn_2)
 adminPingedUsers = types.ReplyKeyboardMarkup(row_width=1)
 adminPingedUsers_labels = ["Подивитись", "Очистити", "Сгенерувати PDF", "Повернутись"]
 build_buttons(adminPingedUsers, adminPingedUsers_labels)
+
+alertReactionMarkup = types.ReplyKeyboardMarkup()
+alertReactionButton = types.KeyboardButton("Ознайомлен(а) ✅")
+alertReactionMarkup.add(alertReactionButton)
 
 
 
@@ -328,11 +340,25 @@ def generate_pdf(message):
                 print("Generated document!")
 
 
+def write_welcome_user(message):
+    row = [message.from_user.id, message.from_user.username]
+    log("new user", f"new user added to users.csv")
+    if os.path.exists("users.csv"):
+        with open("users.csv", "a", encoding="utf-8", newline="") as csv_file:
+            writer = csv.writer(csv_file, delimiter=",")
+            writer.writerow(row)
+    else:
+        with open("users.csv", "w", encoding="utf-8", newline="") as csv_file:
+            writer = csv.writer(csv_file, delimiter=",")
+            writer.writerow(["id", "username"])
+            writer.writerow(row)
+
 
 @bot.message_handler(commands=['start', 'help', 'admin_help'])
 def commands_handler(message):
     log("info", f"{message.text}", user_id=message.from_user.id, user_name=message.from_user.first_name)
     if message.text == "/start":
+        write_welcome_user(message)
         with open("subscribed.txt", "r+", encoding="utf-8") as file:
             read_file = file.readline()
             if str(f"{message.from_user.id}") not in read_file:
@@ -345,7 +371,7 @@ def commands_handler(message):
             "❓ Якщо вам потрібна допомога або ви хочете дізнатися про мої можливості, просто натисніть -> */help*.\n\n"
             "📢 Для останніх оновлень, статусу бота та багфіксів підписуйтесь на наш канал: [оновлення бота](https://t.me/+oh-WlmlOuyI4ODEy).\n\n"
             "Залишайтеся продуктивними та успіхів у навчанні! 🎓",
-            parse_mode="Markdown", reply_markup=userMarkup
+            parse_mode="Markdown", reply_markup=userMarkup, disable_web_page_preview=True
         )
     elif message.text == "/help":
         bot.send_message(
@@ -362,7 +388,7 @@ def commands_handler(message):
             message.chat.id,
             "На що здатна адмін панель:\n\n"
             "📝 *Редагувати розклад* — редагуйте розклад по днях.\n\n"
-            "📢 *Зробити оповістку* — надіслати повідомлення для всіх користувачів, які взаємодіяли з ботом.\n\n"
+            "📢 *Оповістки* — надіслати повідомлення для всіх користувачів, які взаємодіяли з ботом, подивитись хто відмітився.\n\n"
             "📋 *Список відмічених* — переглянути список тих, хто сьогодні відмітився на парах.\n\n"
             "🔙 *Повернутись* — повернутися до панелі звичайного користувача.",
             parse_mode="Markdown"
@@ -378,17 +404,39 @@ def send_alert(message):
             readed = file.readline().replace(" ", "").split(",")
             for el in readed:
                 if el.isdigit():
-                    bot.send_message(int(el), f"*Оповістка:* {str(message.text)}", parse_mode="Markdown")
-                    log("alert", f"Alert to {int(el)} sent successfully!")
+                    try:
+                        bot.send_message(int(el), f"*Оповістка:* {str(message.text)}", parse_mode="Markdown", reply_markup=alertReactionMarkup)
+                        log("alert", f"Alert to {int(el)} sent successfully!")
+                    except:
+                        bot.send_message(message.chat.id, f"Чат '{el}' не знайдено!\nМожливо користувач заблокував бота?")
+                        log("error", f"Chat {int(el)} not found! Does it exists?")
         bot.send_message(message.chat.id, "Оповістку успішно надіслано.", reply_markup=userMarkup)
-
 
 @bot.message_handler(content_types=["text"])
 def message_handler(message):
-    global pingedUsers
+    global pingedUsers, acceptedUsers
     log("info", message.text, user_id=message.from_user.id, user_name=message.from_user.first_name)
     if message.text == "Скасувати":
         bot.send_message(message.chat.id, "Дякую за вашу працю :)", reply_markup=adminMarkupMain)
+    elif message.text == "Ознайомлен(а) ✅":
+        if message.from_user.username in acceptedUsers:
+            bot.send_message(message.chat.id, "Вашу відповідь вже зараховано!", reply_markup=userMarkup)
+        else:
+            acceptedUsers.append(f"@{message.from_user.username} ({message.from_user.first_name} {message.from_user.last_name})")
+            bot.send_message(message.chat.id, "Дякую, вашу відповідь зараховано.", reply_markup=userMarkup)
+    elif message.text == "Оповістки" and str(message.from_user.id) in admins:
+        bot.send_message(message.chat.id, "Надаю меню оповісток.", reply_markup=adminAlertMainMenu)
+    elif message.text == "Подивитись хто ознайомився" and str(message.from_user.id) in admins:
+        if acceptedUsers:
+            formatted = "Ось список ознайомлених з повідомленням людей:\n\n"
+            for el in acceptedUsers:
+                formatted += f"- {str(el)}\n"
+            bot.send_message(message.chat.id, formatted)
+        else:
+            bot.send_message(message.chat.id, "Нажаль, відміток ще немає :(")
+    elif message.text == "Очистити список ознайомлених" and str(message.from_user.id) in admins:
+        bot.send_message(message.chat.id, "Список очищено!")
+        acceptedUsers = []
     elif message.text == "Сгенерувати PDF" and str(message.from_user.id) in admins:
         bot.send_message(message.chat.id, "На цьому моменті розробник втомився, тому, нажаль, функція в розробці.")
         # generate_pdf(message)
@@ -470,6 +518,7 @@ def message_handler(message):
         bot.send_message(message.chat.id, "Логування очищено!")
     else:
         bot.send_sticker(message.chat.id, "CAACAgIAAxkBAAEtq1Vm5B2UODG5XpeAZ8nCmzMtVRZjKAAC3z0AAgveiUtlDmDxoTKLODYE", message.id)
+
 
 load_csv()
 log("boot", "bot live")
