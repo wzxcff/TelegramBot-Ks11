@@ -2,6 +2,7 @@ from inspect import Traceback
 from pathlib import Path
 from trace import Trace
 from traceback import TracebackException
+import uuid
 
 import telebot, os, datetime, csv
 from telebot import types
@@ -49,7 +50,8 @@ admins = os.getenv("ADMINS")
 scheduleFiles = ["Monday.csv", "Tuesday.csv", "Wednesday.csv", "Thursday.csv", "Friday.csv", "Saturday.csv"]
 today = datetime.datetime.now().strftime('%A')
 
-acceptedUsers = []
+alerts_responses = {}
+alert_storage = {}
 pingedUsers = {}
 links = {
     "Алгоритмізація та програмування": "https://meet.google.com/dbf-jyxe-wco",
@@ -79,8 +81,8 @@ adminAlert = types.ReplyKeyboardMarkup()
 adminAlertBtn_1 = types.KeyboardButton("Скасувати оповістку")
 adminAlert.add(adminAlertBtn_1)
 
-adminAlertMainMenu = types.ReplyKeyboardMarkup()
-adminAlertMain_labels = ["Зробити оповістку", "Подивитись хто ознайомився", "Очистити список ознайомлених"]
+adminAlertMainMenu = types.ReplyKeyboardMarkup(row_width=3)
+adminAlertMain_labels = ["Зробити оповістку", "Подивитись хто ознайомився", "Очистити список ознайомлених", "Повернутись"]
 build_buttons(adminAlertMainMenu, adminAlertMain_labels)
 
 adminEditSchedule = types.ReplyKeyboardMarkup(row_width=3)
@@ -120,11 +122,6 @@ adminIsItCorrect.add(adminIsItCorrectBtn_1, adminIsItCorrectBtn_2)
 adminPingedUsers = types.ReplyKeyboardMarkup(row_width=1)
 adminPingedUsers_labels = ["Подивитись", "Очистити", "Сгенерувати PDF", "Повернутись"]
 build_buttons(adminPingedUsers, adminPingedUsers_labels)
-
-alertReactionMarkup = types.ReplyKeyboardMarkup()
-alertReactionButton = types.KeyboardButton("Ознайомлен(а) ✅")
-alertReactionMarkup.add(alertReactionButton)
-
 
 
 class ScheduleDay:
@@ -342,16 +339,22 @@ def generate_pdf(message):
 
 def write_welcome_user(message):
     row = [message.from_user.id, message.from_user.username]
-    log("new user", f"new user added to users.csv")
+    row_str = f"{row[0]},{row[1]}\r\n"
     if os.path.exists("users.csv"):
-        with open("users.csv", "a", encoding="utf-8", newline="") as csv_file:
-            writer = csv.writer(csv_file, delimiter=",")
-            writer.writerow(row)
+        with open("users.csv", "r+", encoding="utf-8", newline="") as csv_file:
+            read_file = csv_file.readlines()
+            if row_str not in read_file:
+                log("new user", f"new user added to users.csv")
+                writer = csv.writer(csv_file, delimiter=",")
+                writer.writerow(row)
+            else:
+                log("new user", "new user wasn't added to users.csv, already exists")
     else:
         with open("users.csv", "w", encoding="utf-8", newline="") as csv_file:
             writer = csv.writer(csv_file, delimiter=",")
             writer.writerow(["id", "username"])
             writer.writerow(row)
+            log("new user", "created users.csv, added user to it")
 
 
 @bot.message_handler(commands=['start', 'help', 'admin_help'])
@@ -400,43 +403,53 @@ def send_alert(message):
         bot.send_message(message.chat.id, "Оповістку скасовано.", reply_markup=adminMarkupMain)
         return
     else:
-        with open("subscribed.txt", "r", encoding="utf-8") as file:
-            readed = file.readline().replace(" ", "").split(",")
-            for el in readed:
-                if el.isdigit():
-                    try:
-                        bot.send_message(int(el), f"*Оповістка:* {str(message.text)}", parse_mode="Markdown", reply_markup=alertReactionMarkup)
-                        log("alert", f"Alert to {int(el)} sent successfully!")
-                    except:
-                        bot.send_message(message.chat.id, f"Чат '{el}' не знайдено!\nМожливо користувач заблокував бота?")
-                        log("error", f"Chat {int(el)} not found! Does it exists?")
-        bot.send_message(message.chat.id, "Оповістку успішно надіслано.", reply_markup=userMarkup)
+        if len(alerts_responses) > 5:
+            bot.send_message(message.chat.id, "*Реакцій на оповістки вже більше 5, рекомендую очистити список ознайомлених!*", parse_mode="Markdown")
+        unique_id = str(uuid.uuid4())
+        alert_storage[unique_id] = message.text
+        markup = types.InlineKeyboardMarkup()
+        button = types.InlineKeyboardButton(text="Ознайомлен(а) ✅", callback_data=f"okay:{unique_id}")
+        markup.add(button)
+
+        with open("subscribed.txt", "r") as file:
+            users_to_send = file.readline().replace(" ", "").split(",")[:-1]
+            print(f"users_to_send: {users_to_send}")
+            for user in users_to_send:
+                try:
+                    bot.send_message(user, f"*Оповістка:* {message.text}", reply_markup=markup, parse_mode="Markdown")
+                except Exception as e:
+                    bot.send_message(message.chat.id, f"Неможливо знайти чат {user}. Можливо користувач заблокував бота?")
+                    log("error", f"Cannot find {user} chat. Maybe user blocked bot?")
+                    log("exception - error", f"{e}")
+            bot.send_message(message.chat.id, "Оповістка надіслана!", reply_markup=adminMarkupMain)
+
+def get_responses(message):
+    if str(message.from_user.id) in admins:
+        for alert_text, users in alerts_responses.items():
+            users_list = "\n".join(f"- @{user}" for user in users)
+            response_text = f'"{alert_text}" \n\nкористувачі відреагували:\n{users_list}'
+            bot.send_message(message.chat.id, response_text)
+
+
+
 
 @bot.message_handler(content_types=["text"])
 def message_handler(message):
-    global pingedUsers, acceptedUsers
+    global pingedUsers, alerts_responses, alert_storage
     log("info", message.text, user_id=message.from_user.id, user_name=message.from_user.first_name)
     if message.text == "Скасувати":
         bot.send_message(message.chat.id, "Дякую за вашу працю :)", reply_markup=adminMarkupMain)
-    elif message.text == "Ознайомлен(а) ✅":
-        if message.from_user.username in acceptedUsers:
-            bot.send_message(message.chat.id, "Вашу відповідь вже зараховано!", reply_markup=userMarkup)
-        else:
-            acceptedUsers.append(f"@{message.from_user.username} ({message.from_user.first_name} {message.from_user.last_name})")
-            bot.send_message(message.chat.id, "Дякую, вашу відповідь зараховано.", reply_markup=userMarkup)
     elif message.text == "Оповістки" and str(message.from_user.id) in admins:
         bot.send_message(message.chat.id, "Надаю меню оповісток.", reply_markup=adminAlertMainMenu)
     elif message.text == "Подивитись хто ознайомився" and str(message.from_user.id) in admins:
-        if acceptedUsers:
-            formatted = "Ось список ознайомлених з повідомленням людей:\n\n"
-            for el in acceptedUsers:
-                formatted += f"- {str(el)}\n"
-            bot.send_message(message.chat.id, formatted)
+        if alerts_responses:
+            get_responses(message)
         else:
             bot.send_message(message.chat.id, "Нажаль, відміток ще немає :(")
     elif message.text == "Очистити список ознайомлених" and str(message.from_user.id) in admins:
         bot.send_message(message.chat.id, "Список очищено!")
-        acceptedUsers = []
+        alerts_responses = {}
+        alert_storage = {}
     elif message.text == "Сгенерувати PDF" and str(message.from_user.id) in admins:
         bot.send_message(message.chat.id, "На цьому моменті розробник втомився, тому, нажаль, функція в розробці.")
         # generate_pdf(message)
@@ -518,6 +531,21 @@ def message_handler(message):
         bot.send_message(message.chat.id, "Логування очищено!")
     else:
         bot.send_sticker(message.chat.id, "CAACAgIAAxkBAAEtq1Vm5B2UODG5XpeAZ8nCmzMtVRZjKAAC3z0AAgveiUtlDmDxoTKLODYE", message.id)
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("okay:"))
+def handle_okay_response(call):
+    unique_id = call.data.split("okay:")[1]  # Get the unique ID from callback data
+    alert_text = alert_storage.get(unique_id)  # Retrieve the full alert text
+    user_id = call.from_user.id
+    username = call.from_user.username or call.from_user.first_name
+
+    if alert_text not in alerts_responses:
+        alerts_responses[alert_text] = set()
+
+    alerts_responses[alert_text].add(f"{username} ({call.from_user.first_name} {call.from_user.last_name})")
+
+    bot.answer_callback_query(call.id, "Відповідь зараховано!")
 
 
 load_csv()
