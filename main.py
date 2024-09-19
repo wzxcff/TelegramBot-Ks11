@@ -55,13 +55,8 @@ alert_storage = {}
 pingedUsers = {}
 links = {
     "Алгоритмізація та програмування": "https://meet.google.com/dbf-jyxe-wco",
-    "Вища математика": "https://us02web.zoom.us/j/85968110027\nКод: Nikolenko1",
-    "Дискретна математика": "https://us02web.zoom.us/j/87437049146?",
-    "Університетські студії та вступ до комп'ютерних наук": "https://meet.google.com/jnn-nrgu-xpt",
-    "Іноземна мова": "https://us05web.zoom.us/j/3749499044?pwd=DAta1gOcsU3yUStFEn7gbSuTJVxcbR.1",
-    "Історія України: Цивілізаційний вимір": "https://us05web.zoom.us/j/4833912715?pwd=aD1SU2RTMVpKaUJ4Q3Z6Ry80ak5IZz09",
-    "Кураторська година": "https://us02web.zoom.us/j/82682991107\nКод: Nikolenko1",
-    "-": "-"
+    "Вища математика": "https://us02web.zoom.us/j/82682991107\nКод: Nikolenko1",
+    "Дискретна математика": "https://us02web.zoom.us/j/87437049146?pwd=ZHBXVGRJT3lpK2lodmlqSGRuZXYzdz09",
 }
 
 # Create reply markup for user
@@ -112,7 +107,7 @@ instructors = ["Струков Володимир Михайлович", "Нік
 build_buttons(adminInstructors, instructors)
 
 adminLinks = types.ReplyKeyboardMarkup(row_width=3)
-build_buttons(adminLinks, lessons[:-1])
+build_buttons(adminLinks, links.keys())
 
 adminIsItCorrect = types.ReplyKeyboardMarkup(row_width=1)
 adminIsItCorrectBtn_1 = types.KeyboardButton("Так, вірно")
@@ -357,7 +352,7 @@ def write_welcome_user(message):
             log("new user", "created users.csv, added user to it")
 
 
-@bot.message_handler(commands=['start', 'help', 'admin_help'])
+@bot.message_handler(commands=['start', 'help', 'admin_help', 'date'])
 def commands_handler(message):
     log("info", f"{message.text}", user_id=message.from_user.id, user_name=message.from_user.first_name)
     if message.text == "/start":
@@ -396,6 +391,8 @@ def commands_handler(message):
             "🔙 *Повернутись* — повернутися до панелі звичайного користувача.",
             parse_mode="Markdown"
         )
+    elif message.text == "/date" and str(message.from_user.id) in admins:
+        bot.send_message(message.chat.id, f"Date and time on server:\n\n{today}, {datetime.datetime.now().strftime("%H:%M:%S")}")
 
 
 def send_alert(message):
@@ -501,13 +498,17 @@ def message_handler(message):
         firstname = message.from_user.first_name
         lastname = message.from_user.last_name
         if message.text == "На всіх":
-            pingedUsers[f"{username} ({firstname} {lastname})"] = f"{message.text};"
-            bot.send_message(message.chat.id, "Ви відмітились на всіх парах!")
+            if lastname:
+                pingedUsers[f"{username} ({firstname} {lastname})"] = f"{message.text};"
+                bot.send_message(message.chat.id, "Ви відмітились на всіх парах!")
+            else:
+                pingedUsers[f"{username} ({firstname})"] = f"{message.text};"
+                bot.send_message(message.chat.id, "Ви відмітились на всіх парах!")
         elif message.text == "Скасувати відмітку":
             pingedUsers[f"{username} ({firstname} {lastname})"] = ""
             bot.send_message(message.chat.id, "Відмітки скасовані!")
         elif message.text in userPingBtn_labels[:-3]:
-            if username:
+            if lastname:
                 read_dict = pingedUsers.get(f"{username} ({firstname} {lastname})", "").replace("На всіх;", "")
                 if message.text in read_dict:
                     bot.send_message(message.chat.id, "Ви вже тут відмітились.")
@@ -515,11 +516,11 @@ def message_handler(message):
                     pingedUsers[f"{username} ({firstname} {lastname})"] = read_dict + f"{message.text};"
                     bot.send_message(message.chat.id, f"Вас успішно відмічено!")
             else:
-                read_dict = pingedUsers.get(f"{firstname} {lastname}", "").replace("На всіх;", "")
+                read_dict = pingedUsers.get(f"{username} ({firstname})", "").replace("На всіх;", "")
                 if message.text in read_dict:
                     bot.send_message(message.chat.id, "Ви вже тут відмітились.")
                 else:
-                    pingedUsers[f"{firstname} {lastname}"] = read_dict + f"{message.text};"
+                    pingedUsers[f"{username} ({firstname})"] = read_dict + f"{message.text};"
                     bot.send_message(message.chat.id, f"Вас успішно відмічено!")
     elif message.text == "Підтримати":
         bot.send_message(message.chat.id, "Привіт!\n\nДякую за вашу фінансову підтримку цього бота! Ваша допомога надзвичайно важлива для мене і дозволяє продовжувати покращувати сервіс.\n\nЯкщо є питання або пропозиції, не вагайтеся звертатися — *@wzxcff*.\n\nhttps://send.monobank.ua/jar/7yZdwvmNRf", disable_web_page_preview=True, parse_mode="Markdown")
@@ -535,8 +536,8 @@ def message_handler(message):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("okay:"))
 def handle_okay_response(call):
-    unique_id = call.data.split("okay:")[1]  # Get the unique ID from callback data
-    alert_text = alert_storage.get(unique_id)  # Retrieve the full alert text
+    unique_id = call.data.split("okay:")[1]
+    alert_text = alert_storage.get(unique_id)
     user_id = call.from_user.id
     username = call.from_user.username or call.from_user.first_name
 
@@ -550,4 +551,7 @@ def handle_okay_response(call):
 
 load_csv()
 log("boot", "bot live")
-bot.polling(non_stop=True)
+try:
+    bot.polling(non_stop=True)
+except Exception as e:
+    log("critical error, important", e)
