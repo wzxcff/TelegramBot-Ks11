@@ -3,6 +3,7 @@ from pathlib import Path
 from trace import Trace
 from traceback import TracebackException
 import uuid
+import json
 
 import telebot, os, datetime, csv
 from telebot import types
@@ -12,6 +13,8 @@ from borb.pdf import Document, FlexibleColumnWidthTable, PDF, Page, PageLayout, 
     TableCell, TrueTypeFont, FixedColumnWidthTable
 from borb.pdf.canvas.font.simple_font.true_type_font import TrueTypeFont
 from borb.pdf.canvas.font.font import Font
+from urllib3.filepost import writer
+
 
 def log(tag, message, user_id=None, user_name=None):
     if os.path.exists("log.txt"):
@@ -35,6 +38,23 @@ def log(tag, message, user_id=None, user_name=None):
 
 log("boot", "initializing bot")
 
+
+def save_pinged():
+    with open("pinged.json", "w") as file:
+        json.dump(pingedUsers, file)
+        log("json", "dumped pingedUsers to json file!")
+
+def load_pinged():
+    try:
+        with open("pinged.json", "r") as file:
+            log("json", "loaded pinged.json for access!")
+            return json.load(file)
+    except FileNotFoundError:
+        log("json", "Couldn't find a file. Does it exists?")
+        return {}
+
+
+
 def build_buttons(admin_markup, labels):
     buttons = []
     for label in labels:
@@ -48,11 +68,10 @@ load_dotenv()
 bot = telebot.TeleBot(os.getenv("TOKEN"))
 admins = os.getenv("ADMINS")
 scheduleFiles = ["Monday.csv", "Tuesday.csv", "Wednesday.csv", "Thursday.csv", "Friday.csv", "Saturday.csv"]
-today = datetime.datetime.now().strftime('%A')
 
 alerts_responses = {}
 alert_storage = {}
-pingedUsers = {}
+pingedUsers = load_pinged()
 links = {
     "Алгоритмізація та програмування": "https://meet.google.com/dbf-jyxe-wco",
     "Вища математика": "https://us02web.zoom.us/j/82682991107\nКод: Nikolenko1",
@@ -139,6 +158,7 @@ def load_csv():
             log("CSV - found", f"found already created {file} file")
 
 def read_csv_today(message):
+    today = datetime.datetime.now().strftime('%A')
     try:
         if today == "Sunday":
             bot.send_message(message.chat.id, "У неділю пар немає, відпочивайте :)")
@@ -269,9 +289,14 @@ def handle_link_selection(message, day, time, lesson, lessonType, instructor):
     if message.text == "Скасувати":
         bot.send_message(message.chat.id, "Дякую за вашу працю :)", reply_markup=adminMarkupMain)
     else:
-        link = links[message.text]
-        bot.send_message(message.chat.id, f"*Перевірте інформацію*\n\n*День тижня:* {day}\n*Дисципліна:* {lesson}\n*Тип:* {lessonType}\n*Викладач:* {instructor}\n*Час:* {time}\n*Посилання:* {link}\n\n*Це вірно?*", parse_mode="Markdown", reply_markup=adminIsItCorrect, disable_web_page_preview=True)
-        bot.register_next_step_handler(message, handle_confirm_selection, day, time, lesson, lessonType, instructor, link)
+        try:
+            link = links[message.text]
+            bot.send_message(message.chat.id, f"*Перевірте інформацію*\n\n*День тижня:* {day}\n*Дисципліна:* {lesson}\n*Тип:* {lessonType}\n*Викладач:* {instructor}\n*Час:* {time}\n*Посилання:* {link}\n\n*Це вірно?*", parse_mode="Markdown", reply_markup=adminIsItCorrect, disable_web_page_preview=True)
+            bot.register_next_step_handler(message, handle_confirm_selection, day, time, lesson, lessonType, instructor, link)
+        except:
+            link = str(message.text)
+            bot.send_message(message.chat.id,f"*Перевірте інформацію*\n\n*День тижня:* {day}\n*Дисципліна:* {lesson}\n*Тип:* {lessonType}\n*Викладач:* {instructor}\n*Час:* {time}\n*Посилання:* {link}\n\n*Це вірно?*",parse_mode="Markdown", reply_markup=adminIsItCorrect, disable_web_page_preview=True)
+            bot.register_next_step_handler(message, handle_confirm_selection, day, time, lesson, lessonType, instructor, link)
 
 
 def handle_confirm_selection(message, day, time, lesson, lessonType, instructor, link):
@@ -293,6 +318,7 @@ def sort_based_on_reference(test_array, reference_array):
 
 
 def generate_pdf(message):
+    today = datetime.datetime.now().strftime('%A')
     para = []
     username = message.from_user.username
     firstname = message.from_user.first_name
@@ -351,7 +377,6 @@ def write_welcome_user(message):
             writer.writerow(row)
             log("new user", "created users.csv, added user to it")
 
-
 @bot.message_handler(commands=['start', 'help', 'admin_help', 'date'])
 def commands_handler(message):
     log("info", f"{message.text}", user_id=message.from_user.id, user_name=message.from_user.first_name)
@@ -392,6 +417,7 @@ def commands_handler(message):
             parse_mode="Markdown"
         )
     elif message.text == "/date" and str(message.from_user.id) in admins:
+        today = datetime.datetime.now().strftime('%A')
         bot.send_message(message.chat.id, f"Date and time on server:\n\n{today}, {datetime.datetime.now().strftime("%H:%M:%S")}")
 
 
@@ -427,7 +453,9 @@ def get_responses(message):
             response_text = f'"{alert_text}" \n\nкористувачі відреагували:\n{users_list}'
             bot.send_message(message.chat.id, response_text)
 
-
+def clear_json():
+    with open("pinged.json", "w") as file:
+        json.dump({}, file)
 
 
 @bot.message_handler(content_types=["text"])
@@ -474,6 +502,7 @@ def message_handler(message):
     elif message.text == "Список відміченних" and str(message.from_user.id) in admins:
         bot.send_message(message.chat.id, "Оберіть дію.", reply_markup=adminPingedUsers)
     elif message.text == "Подивитись" and str(message.from_user.id) in admins:
+        pingedUsers = load_pinged()
         formatted_message = ""
         if pingedUsers.items():
             for key, value in pingedUsers.items():
@@ -486,14 +515,16 @@ def message_handler(message):
         else:
             bot.send_message(message.chat.id, "Нажаль, ще немає відміченних.")
     elif message.text == "Очистити" and str(message.from_user.id) in admins:
-        pingedUsers = {}
+        clear_json()
         bot.send_message(message.chat.id, "Успішно очищено.")
     elif message.text == "Повернутись":
         bot.send_message(message.chat.id, "Повертаю Вас.", reply_markup=userMarkup)
     elif message.text == "Відмітитись на парах":
+        pingedUsers = load_pinged()
         read_csv_today(message)
         bot.send_message(message.chat.id, f"*{message.from_user.first_name}*, оберіть пари на яких Ви плануєте бути сьогодні.\nВи будете на: ", parse_mode="Markdown", reply_markup=userPingMarkup)
     elif message.text in userPingBtn_labels:
+        pingedUsers = load_pinged()
         username = message.from_user.username
         firstname = message.from_user.first_name
         lastname = message.from_user.last_name
@@ -522,6 +553,7 @@ def message_handler(message):
                 else:
                     pingedUsers[f"{username} ({firstname})"] = read_dict + f"{message.text};"
                     bot.send_message(message.chat.id, f"Вас успішно відмічено!")
+        save_pinged()
     elif message.text == "Підтримати":
         bot.send_message(message.chat.id, "Привіт!\n\nДякую за вашу фінансову підтримку цього бота! Ваша допомога надзвичайно важлива для мене і дозволяє продовжувати покращувати сервіс.\n\nЯкщо є питання або пропозиції, не вагайтеся звертатися — *@wzxcff*.\n\nhttps://send.monobank.ua/jar/7yZdwvmNRf", disable_web_page_preview=True, parse_mode="Markdown")
     elif message.text == "Конфідеційність":
