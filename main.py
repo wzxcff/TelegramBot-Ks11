@@ -1,9 +1,8 @@
-from inspect import Traceback
+import threading
 from pathlib import Path
-from trace import Trace
-from traceback import TracebackException
 import uuid
-import json
+import json, time
+import psutil, platform, subprocess
 
 import telebot, os, datetime, csv
 from telebot import types
@@ -13,7 +12,6 @@ from borb.pdf import Document, FlexibleColumnWidthTable, PDF, Page, PageLayout, 
     TableCell, TrueTypeFont, FixedColumnWidthTable
 from borb.pdf.canvas.font.simple_font.true_type_font import TrueTypeFont
 from borb.pdf.canvas.font.font import Font
-from urllib3.filepost import writer
 
 
 def log(tag, message, user_id=None, user_name=None):
@@ -42,16 +40,25 @@ log("boot", "initializing bot")
 def save_pinged():
     with open("pinged.json", "w") as file:
         json.dump(pingedUsers, file)
-        log("json", "dumped pingedUsers to json file!")
+        log("json/pinged", "dumped pingedUsers to json file!")
 
 def load_pinged():
     try:
         with open("pinged.json", "r") as file:
-            log("json", "loaded pinged.json for access!")
+            log("json/pinged", "loaded pinged.json for access!")
             return json.load(file)
     except FileNotFoundError:
-        log("json", "Couldn't find a file. Does it exists?")
+        log("json/pinged", "Couldn't find a file. Does it exists?")
         return {}
+
+def save_reacted():
+    converted_alerts_responses = {key: list(value) for key, value in alerts_responses.items()}
+    with open("reactedR.json", "w") as file:
+        json.dump(converted_alerts_responses, file)
+    with open("reactedS.json", "w") as file:
+        json.dump(alert_storage, file)
+
+
 
 
 
@@ -69,8 +76,6 @@ bot = telebot.TeleBot(os.getenv("TOKEN"))
 admins = os.getenv("ADMINS")
 scheduleFiles = ["Monday.csv", "Tuesday.csv", "Wednesday.csv", "Thursday.csv", "Friday.csv", "Saturday.csv"]
 
-alerts_responses = {}
-alert_storage = {}
 pingedUsers = load_pinged()
 links = {
     "Алгоритмізація та програмування": "https://meet.google.com/dbf-jyxe-wco",
@@ -134,9 +139,11 @@ adminIsItCorrectBtn_2 = types.KeyboardButton("Ні, скинути")
 adminIsItCorrect.add(adminIsItCorrectBtn_1, adminIsItCorrectBtn_2)
 
 adminPingedUsers = types.ReplyKeyboardMarkup(row_width=1)
-adminPingedUsers_labels = ["Подивитись", "Очистити", "Сгенерувати PDF", "Повернутись"]
+adminPingedUsers_labels = ["Подивитись", "Очистити", "Повернутись"]
 build_buttons(adminPingedUsers, adminPingedUsers_labels)
 
+alerts_responses = {}
+alert_storage = {}
 
 class ScheduleDay:
     def __init__(self, name, type_of_lesson, instructor, time, link):
@@ -145,6 +152,23 @@ class ScheduleDay:
         self.instructor = instructor
         self.time = time
         self.link = link
+
+
+def load_reacted():
+    global alerts_responses
+    global alert_storage
+
+    try:
+        with open("reactedR.json", "r") as file:
+            loaded_alerts_responses = json.load(file)
+            alerts_responses = {key: set(value) for key, value in loaded_alerts_responses.items()}
+
+        with open("reactedS.json", "r") as file:
+            alert_storage = json.load(file)
+    except FileNotFoundError:
+        alerts_responses = {}
+        alert_storage = {}
+
 
 
 def load_csv():
@@ -350,13 +374,16 @@ def generate_pdf(message):
                 to_add.add(Paragraph(el, font=bold, font_size=Decimal(8)))
             layout.add(to_add.set_padding_on_all_cells(Decimal(5), Decimal(5), Decimal(0.5), Decimal(10)))
 
-            read_dict = pingedUsers.get(f"{username} ({firstname} {lastname})", "")
-            pingedKeys = pingedUsers.keys()
+            for user in pingedUsers.keys():
+                to_add.add(Paragraph(user, font=font, font_size=Decimal(8)))
 
-            with open(f"{str(datetime.datetime.now().strftime("%d.%m")).replace(".", "")}.pdf", "wb") as out_file_handle:
+
+            with open(f"Відмічені.pdf", "wb") as out_file_handle:
                 PDF.dumps(out_file_handle, doc)
                 print("Generated document!")
 
+            bot.send_document(message.chat.id, open("Відмічені.pdf", "rb"))
+            os.remove(f"Відмічені.pdf")
 
 def write_welcome_user(message):
     row = [message.from_user.id, message.from_user.username]
@@ -377,7 +404,7 @@ def write_welcome_user(message):
             writer.writerow(row)
             log("new user", "created users.csv, added user to it")
 
-@bot.message_handler(commands=['start', 'help', 'admin_help', 'date'])
+@bot.message_handler(commands=['start', 'help', 'admin_help', 'date', 'keyboard', 'status'])
 def commands_handler(message):
     log("info", f"{message.text}", user_id=message.from_user.id, user_name=message.from_user.first_name)
     if message.text == "/start":
@@ -419,7 +446,10 @@ def commands_handler(message):
     elif message.text == "/date" and str(message.from_user.id) in admins:
         today = datetime.datetime.now().strftime('%A')
         bot.send_message(message.chat.id, f"Date and time on server:\n\n{today}, {datetime.datetime.now().strftime("%H:%M:%S")}")
-
+    elif message.text == "/keyboard":
+        bot.send_message(message.chat.id, "Надав *Вам* клавіатуру :)", reply_markup=userMarkup, parse_mode="Markdown")
+    elif message.text == "/status" and str(message.from_user.id) in admins:
+        bot.send_message(message.chat.id, get_server_status())
 
 def send_alert(message):
     if message.text == "Скасувати оповістку" and str(message.from_user.id) in admins:
@@ -436,7 +466,7 @@ def send_alert(message):
 
         with open("subscribed.txt", "r") as file:
             users_to_send = file.readline().replace(" ", "").split(",")[:-1]
-            print(f"users_to_send: {users_to_send}")
+            log("alert", f"Users to send: {users_to_send}")
             for user in users_to_send:
                 try:
                     bot.send_message(user, f"*Оповістка:* {message.text}", reply_markup=markup, parse_mode="Markdown")
@@ -445,6 +475,7 @@ def send_alert(message):
                     log("error", f"Cannot find {user} chat. Maybe user blocked bot?")
                     log("exception - error", f"{e}")
             bot.send_message(message.chat.id, "Оповістка надіслана!", reply_markup=adminMarkupMain)
+            log("alert", "alerts were sent successfully!")
 
 def get_responses(message):
     if str(message.from_user.id) in admins:
@@ -456,7 +487,68 @@ def get_responses(message):
 def clear_json():
     with open("pinged.json", "w") as file:
         json.dump({}, file)
+    log("json/pinged", "json cleared!")
 
+def clear_reacted():
+    global alerts_responses, alert_storage
+    with open("reactedR.json", "w") as file:
+        json.dump({}, file)
+    with open("reactedS.json", "w") as file:
+        json.dump({}, file)
+    alerts_responses = {}
+    alert_storage = {}
+    log("json/reacted", "json cleared!")
+
+def send_user_data_dump():
+    global pingedUsers
+    while True:
+        try:
+            bot.send_message(774380830, "*Надаю дамп інформації за останні 30 хвилин!*", parse_mode="Markdown")
+            pingedUsers = load_pinged()
+            formatted_message = ""
+            if pingedUsers.items():
+                for key, value in pingedUsers.items():
+                    unpacked_value = value.split(";")[:-1]
+                    formatted_message += f"*@{key}* \nпланує бути на:\n\n"
+                    for para in unpacked_value:
+                        formatted_message += f"- {para}\n"
+                    formatted_message += "\n\n"
+                bot.send_message(774380830, formatted_message, parse_mode="Markdown")
+            load_reacted()
+            for alert_text, users in alerts_responses.items():
+                users_list = "\n".join(f"- @{user}" for user in users)
+                response_text = f'"{alert_text}" \n\nкористувачі відреагували:\n{users_list}'
+                bot.send_message(774380830, response_text)
+            log("dump", "Data dump was sent successfully to main admin!")
+            time.sleep(1800)
+        except Exception as e:
+            log("error", "Error in send_user_data_dump!")
+
+def start_timer():
+    timer_thread = threading.Thread(target=send_user_data_dump, daemon=True)
+    timer_thread.start()
+
+def get_server_status():
+    uptime = subprocess.check_output("uptime -p", shell=True).decode().strip()
+
+    cpu_usage = psutil.cpu_percent(interval=1)
+
+    memory = psutil.virtual_memory()
+    memory_usage = memory.percent
+
+    disk = psutil.disk_usage('/')
+    disk_usage = disk.percent
+
+    os_info = platform.system() + " " + platform.release()
+    status_message = (
+        f"Server Status:\n"
+        f"OS: {os_info}\n"
+        f"Uptime: {uptime}\n"
+        f"CPU Usage: {cpu_usage}%\n"
+        f"Memory Usage: {memory_usage}%\n"
+        f"Disk Usage: {disk_usage}%\n"
+    )
+    return status_message
 
 @bot.message_handler(content_types=["text"])
 def message_handler(message):
@@ -467,19 +559,17 @@ def message_handler(message):
     elif message.text == "Оповістки" and str(message.from_user.id) in admins:
         bot.send_message(message.chat.id, "Надаю меню оповісток.", reply_markup=adminAlertMainMenu)
     elif message.text == "Подивитись хто ознайомився" and str(message.from_user.id) in admins:
+        load_reacted()
         if alerts_responses:
             get_responses(message)
         else:
             bot.send_message(message.chat.id, "Нажаль, відміток ще немає :(")
     elif message.text == "Очистити список ознайомлених" and str(message.from_user.id) in admins:
+        clear_reacted()
         bot.send_message(message.chat.id, "Список очищено!")
-        alerts_responses = {}
-        alert_storage = {}
     elif message.text == "Сгенерувати PDF" and str(message.from_user.id) in admins:
         bot.send_message(message.chat.id, "На цьому моменті розробник втомився, тому, нажаль, функція в розробці.")
         # generate_pdf(message)
-        # bot.send_document(message.chat.id, open(f"{datetime.datetime.now().strftime("%d.%m").replace(".", "")}.pdf", "rb"))
-        # os.remove(f"{datetime.datetime.now().strftime("%d.%m").replace(".", "")}.pdf")
     elif message.text in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] and str(message.from_user.id) in admins:
         handle_day_selection(message)
     elif message.text == "Розклад на сьогодні":
@@ -573,17 +663,29 @@ def handle_okay_response(call):
     user_id = call.from_user.id
     username = call.from_user.username or call.from_user.first_name
 
-    if alert_text not in alerts_responses:
-        alerts_responses[alert_text] = set()
+    if alert_text:
+        if alert_text not in alerts_responses:
+            alerts_responses[alert_text] = set()
 
-    alerts_responses[alert_text].add(f"{username} ({call.from_user.first_name} {call.from_user.last_name})")
-
+    try:
+        if call.from_user.last_name:
+            alerts_responses[alert_text].add(f"{username} ({call.from_user.first_name} {call.from_user.last_name})")
+        else:
+            alerts_responses[alert_text].add(f"{username} ({call.from_user.first_name})")
+    except KeyError:
+        bot.answer_callback_query(call.id, "Оповістка вже видалена!")
+        log("error", "Couldn't find 'None' in alerts_responses!")
+    save_reacted()
     bot.answer_callback_query(call.id, "Відповідь зараховано!")
 
+
+start_timer()
+log("timer", "Timer started")
 
 load_csv()
 log("boot", "bot live")
 try:
     bot.polling(non_stop=True)
 except Exception as e:
+    print(e)
     log("critical error, important", e)
