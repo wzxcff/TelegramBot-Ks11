@@ -409,10 +409,6 @@ def commands_handler(message):
     log("info", f"{message.text}", user_id=message.from_user.id, user_name=message.from_user.first_name)
     if message.text == "/start":
         write_welcome_user(message)
-        with open("subscribed.txt", "r+", encoding="utf-8") as file:
-            read_file = file.readline()
-            if str(f"{message.from_user.id}") not in read_file:
-                file.write(f"{str(message.from_user.id)}, ")
         bot.send_message(
             message.chat.id,
             f"👋 Привіт, *{message.from_user.first_name}*!\n"
@@ -464,14 +460,15 @@ def send_alert(message):
         button = types.InlineKeyboardButton(text="Ознайомлен(а) ✅", callback_data=f"okay:{unique_id}")
         markup.add(button)
 
-        with open("subscribed.txt", "r") as file:
-            users_to_send = file.readline().replace(" ", "").split(",")[:-1]
-            log("alert", f"Users to send: {users_to_send}")
-            for user in users_to_send:
+        with open("users.csv", "r") as file:
+            csv_reader = csv.DictReader(file)
+            user_dict = {row['id']: row['username'] for row in csv_reader}
+            log("alert", f"Users to send: {user_dict.keys()}")
+            for user in user_dict.keys():
                 try:
                     bot.send_message(user, f"*Оповістка:* {message.text}", reply_markup=markup, parse_mode="Markdown")
                 except Exception as e:
-                    bot.send_message(message.chat.id, f"Неможливо знайти чат {user}. Можливо користувач заблокував бота?")
+                    bot.send_message(message.chat.id, f"Неможливо знайти чат з @{user_dict[user]}. Скоріш за все користувач заблокував бота.")
                     log("error", f"Cannot find {user} chat. Maybe user blocked bot?")
                     log("exception - error", f"{e}")
             bot.send_message(message.chat.id, "Оповістка надіслана!", reply_markup=adminMarkupMain)
