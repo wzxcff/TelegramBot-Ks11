@@ -5,6 +5,7 @@ import json, time
 import psutil, platform, subprocess
 
 import telebot, os, datetime, csv
+from fontTools.mtiLib import build
 from telebot import types
 from dotenv import load_dotenv
 from borb.io.read.types import Decimal
@@ -74,26 +75,35 @@ def build_buttons(admin_markup, labels):
 load_dotenv()
 bot = telebot.TeleBot(os.getenv("TOKEN"))
 admins = os.getenv("ADMINS")
+links = {
+    "Алгоритмізація та програмування": os.getenv("PROGRAMMING"),
+    "Вища математика": os.getenv("HIGHER_MATH"),
+    "Дискретна математика": os.getenv("DISCRETE_MATH"),
+    "Історія України: Цивілізаційний вимір": os.getenv("HISTORY"),
+}
 scheduleFiles = ["Monday.csv", "Tuesday.csv", "Wednesday.csv", "Thursday.csv", "Friday.csv", "Saturday.csv"]
 
 pingedUsers = load_pinged()
-links = {
-    "Алгоритмізація та програмування": "https://meet.google.com/dbf-jyxe-wco",
-    "Вища математика": "https://us02web.zoom.us/j/82682991107\nКод: Nikolenko1",
-    "Дискретна математика": "https://us02web.zoom.us/j/87437049146?pwd=ZHBXVGRJT3lpK2lodmlqSGRuZXYzdz09",
-}
+
+mainChoiceMarkup = types.ReplyKeyboardMarkup(row_width=2)
+mainChoice_labels = ["Користувач", "Адмін"]
+build_buttons(mainChoiceMarkup, mainChoice_labels)
+
+scheduleMarkup = types.ReplyKeyboardMarkup(row_width=2)
+scheduleMarkup_labels = ["Розклад на сьогодні", "Розклад на тиждень", "Поверни"]
+build_buttons(scheduleMarkup, scheduleMarkup_labels)
 
 # Create reply markup for user
 userMarkup = types.ReplyKeyboardMarkup(row_width=3)
-userBtn_labels = ["Розклад на сьогодні", "Розклад на тиждень", "Адмін", "Конфідеційність", "Відмітитись на парах", "Підтримати"]
+userBtn_labels = ["Розклад", "Відмітитись на парах", "Домашні завдання", "Конфідеційність та підтримка", "Головне меню", "Грати :)"]
 build_buttons(userMarkup, userBtn_labels)
 
 userPingMarkup = types.ReplyKeyboardMarkup(row_width=3)
-userPingBtn_labels = ["Першій парі", "Другій парі", "Третій парі", "Четвертій парі", "П'ятій парі", "Шостій парі", "Скасувати відмітку", "Повернутись", "На всіх"]
+userPingBtn_labels = ["Першій парі", "Другій парі", "Третій парі", "Четвертій парі", "П'ятій парі", "Шостій парі", "Скасувати відмітку", "Поверни", "На всіх"]
 build_buttons(userPingMarkup, userPingBtn_labels)
 
 adminMarkupMain = types.ReplyKeyboardMarkup(row_width=3)
-adminMarkupMain_labels = ["Редагувати розклад", "Оповістки", "Список відміченних", "Повернутись"]
+adminMarkupMain_labels = ["Редагувати розклад", "Оповістки", "Список відміченних", "Головне меню"]
 build_buttons(adminMarkupMain, adminMarkupMain_labels)
 
 adminAlert = types.ReplyKeyboardMarkup()
@@ -325,8 +335,9 @@ def handle_link_selection(message, day, time, lesson, lessonType, instructor):
 
 def handle_confirm_selection(message, day, time, lesson, lessonType, instructor, link):
     if message.text == "Так, вірно" and str(message.from_user.id) in admins:
-        bot.send_message(message.chat.id, "Дякую, розклад змінено!", reply_markup=adminMarkupMain)
         write_csv(day, "додати пару", [day, lesson, lessonType, instructor, time, link])
+        read_csv_all(message)
+        bot.send_message(message.chat.id, "Дякую, розклад змінено!", reply_markup=adminMarkupMain)
     elif message.text == "Ні, скинути" and str(message.from_user.id) in admins:
         bot.send_message(message.chat.id, "Розклад скинено.", reply_markup=adminMarkupMain)
 
@@ -417,7 +428,7 @@ def commands_handler(message):
             "❓ Якщо вам потрібна допомога або ви хочете дізнатися про мої можливості, просто натисніть -> */help*.\n\n"
             "📢 Для останніх оновлень, статусу бота та багфіксів підписуйтесь на наш канал: [оновлення бота](https://t.me/+oh-WlmlOuyI4ODEy).\n\n"
             "Залишайтеся продуктивними та успіхів у навчанні! 🎓",
-            parse_mode="Markdown", reply_markup=userMarkup, disable_web_page_preview=True
+            parse_mode="Markdown", reply_markup=mainChoiceMarkup, disable_web_page_preview=True
         )
     elif message.text == "/help":
         bot.send_message(
@@ -443,7 +454,7 @@ def commands_handler(message):
         today = datetime.datetime.now().strftime('%A')
         bot.send_message(message.chat.id, f"Date and time on server:\n\n{today}, {datetime.datetime.now().strftime("%H:%M:%S")}")
     elif message.text == "/keyboard":
-        bot.send_message(message.chat.id, "Надав *Вам* клавіатуру :)", reply_markup=userMarkup, parse_mode="Markdown")
+        bot.send_message(message.chat.id, "Надав *Вам* клавіатуру :)", reply_markup=mainChoiceMarkup, parse_mode="Markdown")
     elif message.text == "/status" and str(message.from_user.id) in admins:
         bot.send_message(message.chat.id, get_server_status())
 
@@ -497,26 +508,28 @@ def clear_reacted():
     log("json/reacted", "json cleared!")
 
 def send_user_data_dump():
-    global pingedUsers
+    global pingedUsers, alerts_responses
     while True:
         try:
-            bot.send_message(774380830, "*Надаю дамп інформації за останні 30 хвилин!*", parse_mode="Markdown")
-            pingedUsers = load_pinged()
-            formatted_message = ""
-            if pingedUsers.items():
-                for key, value in pingedUsers.items():
-                    unpacked_value = value.split(";")[:-1]
-                    formatted_message += f"*@{key}* \nпланує бути на:\n\n"
-                    for para in unpacked_value:
-                        formatted_message += f"- {para}\n"
-                    formatted_message += "\n\n"
-                bot.send_message(774380830, formatted_message, parse_mode="Markdown")
-            load_reacted()
-            for alert_text, users in alerts_responses.items():
-                users_list = "\n".join(f"- @{user}" for user in users)
-                response_text = f'"{alert_text}" \n\nкористувачі відреагували:\n{users_list}'
-                bot.send_message(774380830, response_text)
-            log("dump", "Data dump was sent successfully to main admin!")
+            now = datetime.datetime.now()
+            if 10 <= now.hour < 18:
+                pingedUsers = load_pinged()
+                formatted_message = ""
+                if pingedUsers.items():
+                    for key, value in pingedUsers.items():
+                        unpacked_value = value.split(";")[:-1]
+                        formatted_message += f"*@{key}* \nпланує бути на:\n\n"
+                        for para in unpacked_value:
+                            formatted_message += f"- {para}\n"
+                        formatted_message += "\n\n"
+                    bot.send_message(774380830, formatted_message, parse_mode="Markdown")
+                load_reacted()
+                if alerts_responses:
+                    for alert_text, users in alerts_responses.items():
+                        users_list = "\n".join(f"- @{user}" for user in users)
+                        response_text = f'"{alert_text}" \n\nкористувачі відреагували:\n{users_list}'
+                        bot.send_message(774380830, response_text)
+                    log("dump", "Data dump was sent successfully to main admin!")
             time.sleep(1800)
         except Exception as e:
             log("error", "Error in send_user_data_dump!")
@@ -551,10 +564,14 @@ def get_server_status():
 def message_handler(message):
     global pingedUsers, alerts_responses, alert_storage
     log("info", message.text, user_id=message.from_user.id, user_name=message.from_user.first_name)
-    if message.text == "Скасувати":
+    if message.text == "Скасувати" and str(message.from_user.id) in admins:
         bot.send_message(message.chat.id, "Дякую за вашу працю :)", reply_markup=adminMarkupMain)
     elif message.text == "Оповістки" and str(message.from_user.id) in admins:
         bot.send_message(message.chat.id, "Надаю меню оповісток.", reply_markup=adminAlertMainMenu)
+    elif message.text == "Поверни":
+        bot.send_message(message.chat.id, "Повернув!", reply_markup=userMarkup)
+    elif message.text == "Домашні завдання":
+        bot.send_message(message.chat.id, "Розділ в розробці.")
     elif message.text == "Подивитись хто ознайомився" and str(message.from_user.id) in admins:
         load_reacted()
         if alerts_responses:
@@ -564,6 +581,10 @@ def message_handler(message):
     elif message.text == "Очистити список ознайомлених" and str(message.from_user.id) in admins:
         clear_reacted()
         bot.send_message(message.chat.id, "Список очищено!")
+    elif message.text == "Користувач":
+        bot.send_message(message.chat.id, "Надаю меню користувача!", reply_markup=userMarkup)
+    elif message.text == "Розклад":
+        bot.send_message(message.chat.id, "Оберіть режим відображення.", reply_markup=scheduleMarkup)
     elif message.text == "Сгенерувати PDF" and str(message.from_user.id) in admins:
         bot.send_message(message.chat.id, "На цьому моменті розробник втомився, тому, нажаль, функція в розробці.")
         # generate_pdf(message)
@@ -604,8 +625,8 @@ def message_handler(message):
     elif message.text == "Очистити" and str(message.from_user.id) in admins:
         clear_json()
         bot.send_message(message.chat.id, "Успішно очищено.")
-    elif message.text == "Повернутись":
-        bot.send_message(message.chat.id, "Повертаю Вас.", reply_markup=userMarkup)
+    elif message.text == "Повернутись" and str(message.from_user.id) in admins:
+        bot.send_message(message.chat.id, "Повертаю Вас.", reply_markup=adminMarkupMain)
     elif message.text == "Відмітитись на парах":
         pingedUsers = load_pinged()
         read_csv_today(message)
@@ -641,10 +662,15 @@ def message_handler(message):
                     pingedUsers[f"{username} ({firstname})"] = read_dict + f"{message.text};"
                     bot.send_message(message.chat.id, f"Вас успішно відмічено!")
         save_pinged()
-    elif message.text == "Підтримати":
-        bot.send_message(message.chat.id, "Привіт!\n\nДякую за вашу фінансову підтримку цього бота! Ваша допомога надзвичайно важлива для мене і дозволяє продовжувати покращувати сервіс.\n\nЯкщо є питання або пропозиції, не вагайтеся звертатися — *@wzxcff*.\n\nhttps://send.monobank.ua/jar/7yZdwvmNRf", disable_web_page_preview=True, parse_mode="Markdown")
-    elif message.text == "Конфідеційність":
+        send_user_data_dump()
+    elif message.text == "Головне меню":
+        bot.send_message(message.chat.id, "Надаю головне меню.", reply_markup=mainChoiceMarkup)
+    elif message.text == "Грати :)":
+        bot.send_message(message.chat.id, "Цей розділ ще в розробці, але тут точно має бути щось цікаве.")
+        bot.send_sticker(message.chat.id, "CAACAgIAAxkBAAEt7rBm9IRQbWNsRub7NBhJhtGySSMuLQAC5xIAAkfS-EthvjzENdeqgzYE")
+    elif message.text == "Конфідеційність та підтримка":
         bot.send_message(message.chat.id, "*Щодо використання ваших даних*\n\nРозробник ніяк не може отримати доступ до вашого акаунту, паролів або особистих повідомлень. Бот зберігає лише ваш *ID, юзернейм, ім’я та прізвище* для забезпечення коректної роботи сервісу в межах університетської групи.\n\nВаші дані залишаються конфіденційними та використовуються виключно для покращення взаємодії з ботом. Жодна інформація не передається третім сторонам або використовується для інших цілей.\n\nЯкщо у вас є питання стосовно збереження даних або ви хочете видалити вашу інформацію, будь ласка, звертайтеся до мене напряму — *@wzxcff*. Я завжди на зв'язку і готовий допомогти.", parse_mode="Markdown")
+        bot.send_message(message.chat.id, "Дякую за вашу фінансову підтримку цього бота! Ваша допомога надзвичайно важлива для мене і дозволяє продовжувати покращувати сервіс.\n\nЯкщо є питання або пропозиції, не вагайтеся звертатися — *@wzxcff*.\n\nhttps://send.monobank.ua/jar/7yZdwvmNRf", disable_web_page_preview=True, parse_mode="Markdown")
     elif message.text == "/clear_log" and str(message.from_user.id) in admins:
         with open("log.txt", "w", encoding="utf-8") as file:
             file.write("Logs cleared")
@@ -669,6 +695,7 @@ def handle_okay_response(call):
             alerts_responses[alert_text].add(f"{username} ({call.from_user.first_name} {call.from_user.last_name})")
         else:
             alerts_responses[alert_text].add(f"{username} ({call.from_user.first_name})")
+            send_user_data_dump()
     except KeyError:
         bot.answer_callback_query(call.id, "Оповістка вже видалена!")
         log("error", "Couldn't find 'None' in alerts_responses!")
