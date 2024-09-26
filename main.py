@@ -530,7 +530,7 @@ def send_user_data_dump():
                         response_text = f'"{alert_text}" \n\nкористувачі відреагували:\n{users_list}'
                         bot.send_message(774380830, response_text)
                     log("dump", "Data dump was sent successfully to main admin!")
-            time.sleep(1800)
+            time.sleep(18000)
         except Exception as e:
             log("error", "Error in send_user_data_dump!")
 
@@ -662,7 +662,6 @@ def message_handler(message):
                     pingedUsers[f"{username} ({firstname})"] = read_dict + f"{message.text};"
                     bot.send_message(message.chat.id, f"Вас успішно відмічено!")
         save_pinged()
-        send_user_data_dump()
     elif message.text == "Головне меню":
         bot.send_message(message.chat.id, "Надаю головне меню.", reply_markup=mainChoiceMarkup)
     elif message.text == "Грати :)":
@@ -695,7 +694,6 @@ def handle_okay_response(call):
             alerts_responses[alert_text].add(f"{username} ({call.from_user.first_name} {call.from_user.last_name})")
         else:
             alerts_responses[alert_text].add(f"{username} ({call.from_user.first_name})")
-            send_user_data_dump()
     except KeyError:
         bot.answer_callback_query(call.id, "Оповістка вже видалена!")
         log("error", "Couldn't find 'None' in alerts_responses!")
