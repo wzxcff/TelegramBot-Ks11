@@ -221,13 +221,17 @@ def read_csv_today(message):
         log("error - read_csv_today", f"Cannot read '{today}.csv'! File exists?")
 
 def read_csv_all(message):
-    formatted_to_send = ""
     try:
+        max_message_length = 4096
+        formatted_to_send = ""
+        separate_messages = []
+
         for file in scheduleFiles:
-            formatted_to_send += "——————————————————\n"
+            day_schedule = "——————————————————\n"
             with open(f"{file}", "r", encoding="utf-8") as csv_file:
                 reader = csv.reader(csv_file)
-                formatted_message = f"\nРозклад на *{"".join(file.split(".")[0])}*\n\n"
+                day_name = "".join(file.split(".")[0])
+                formatted_message = f"\nРозклад на *{day_name}*\n\n"
                 next(reader)
                 for i, item in enumerate(reader, start=1):
                     if item:
@@ -240,15 +244,24 @@ def read_csv_all(message):
                             f"*Час:* {lesson_created.time}\n"
                             f"*Посилання:* {lesson_created.link}\n\n"
                         )
-                if formatted_message == f"\nРозклад на *{"".join(file.split(".")[0])}*\n\n":
+
+                if formatted_message == f"\nРозклад на *{day_name}*\n\n":
                     formatted_message += "\nПар немає.\n\n"
-                    formatted_to_send += formatted_message
-                else:
-                    formatted_to_send += formatted_message
-        formatted_to_send += "——————————————————\n"
-        bot.send_message(message.chat.id, formatted_to_send, parse_mode="Markdown", disable_web_page_preview=True)
+
+                day_schedule += formatted_message
+                separate_messages.append(day_schedule)
+                formatted_to_send += day_schedule
+
+        if len(formatted_to_send) > max_message_length:
+            for day_message in separate_messages:
+                day_message += "——————————————————\n"
+                bot.send_message(message.chat.id, day_message, parse_mode="Markdown", disable_web_page_preview=True)
+        else:
+            formatted_to_send += "——————————————————\n"
+            bot.send_message(message.chat.id, formatted_to_send, parse_mode="Markdown", disable_web_page_preview=True)
     except FileNotFoundError:
         log("error - read_csv_all", f"Cannot read schedule.csv! File exists?")
+
 
 def write_csv(day, mode, info=None):
     try:
@@ -512,7 +525,7 @@ def send_user_data_dump():
     while True:
         try:
             now = datetime.datetime.now()
-            if 10 <= now.hour < 18:
+            if 10 <= now.hour <= 18:
                 pingedUsers = load_pinged()
                 formatted_message = ""
                 if pingedUsers.items():
@@ -644,8 +657,12 @@ def message_handler(message):
                 pingedUsers[f"{username} ({firstname})"] = f"{message.text};"
                 bot.send_message(message.chat.id, "Ви відмітились на всіх парах!")
         elif message.text == "Скасувати відмітку":
-            pingedUsers[f"{username} ({firstname} {lastname})"] = ""
-            bot.send_message(message.chat.id, "Відмітки скасовані!")
+            if lastname:
+                pingedUsers[f"{username} ({firstname} {lastname})"] = ""
+                bot.send_message(message.chat.id, "Відмітки скасовані!")
+            else:
+                pingedUsers[f"{username} ({firstname})"] = ""
+                bot.send_message(message.chat.id, "Відмітки скасовані!")
         elif message.text in userPingBtn_labels[:-3]:
             if lastname:
                 read_dict = pingedUsers.get(f"{username} ({firstname} {lastname})", "").replace("На всіх;", "")
@@ -706,6 +723,9 @@ log("timer", "Timer started")
 
 load_csv()
 log("boot", "bot live")
+
+bot.send_message(774380830, "Bot started successfully!")
+
 try:
     bot.polling(non_stop=True)
 except Exception as e:
